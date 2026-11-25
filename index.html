@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Europe & Foreign Jobs Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --success: #10b981;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .header h1 { font-size: 18px; margin: 0; }
+    .tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .tab-btn {
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--muted);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tab-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .filters {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .row { display: flex; gap: 8px; }
+    input, select, button {
+      padding: 11px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 14px;
+    }
+    input, select { width: 100%; }
+    .btn-primary {
+      background: var(--primary);
+      border: none;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-success {
+      background: var(--success);
+      border: none;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      margin-bottom: 6px;
+    }
+    .job-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .job-meta { font-size: 13px; color: var(--muted); margin-bottom: 10px; line-height: 1.4; }
+    .apply-btn {
+      display: inline-block;
+      padding: 8px 12px;
+      background: var(--primary);
+      color: #fff;
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+    }
+    .hidden { display: none; }
+    .form-group { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>🌍 Europe & Foreign Jobs</h1>
+    <button class="btn-primary" style="padding:7px 10px; font-size:12px;" onclick="runParseWithAd()">🔄 Янгилаш</button>
+  </div>
+
+  <div class="tabs">
+    <button id="tabSeeker" class="tab-btn active" onclick="switchTab('seeker')">🔍 Иш қидирувчи</button>
+    <button id="tabEmployer" class="tab-btn" onclick="switchTab('employer')">🏢 Иш берувчи</button>
+  </div>
+
+  <!-- ИШ ҚИДИРУВЧИ БЎЛИМИ -->
+  <div id="seekerSection">
+    <div class="filters">
+      <div class="row">
+        <input id="searchInput" type="text" placeholder="Касб, компания (мас. Driver, IT)..." />
+        <button class="btn-primary" onclick="loadJobs()">Қидириш</button>
+      </div>
+      <select id="countrySelect" onchange="loadJobs()">
+        <option value="all">🌍 Барча давлатлар (Европа / Хориж)</option>
+        <option value="Germany">🇩🇪 Германия (Germany)</option>
+        <option value="Poland">🇵🇱 Польша (Poland)</option>
+        <option value="Czech">🇨🇿 Чехия (Czech Republic)</option>
+        <option value="Lithuania">🇱🇹 Литва (Lithuania)</option>
+        <option value="Netherlands">🇳🇱 Нидерландия (Netherlands)</option>
+        <option value="United Kingdom">🇬🇧 Буюк Британия (UK)</option>
+        <option value="Europe">🇪🇺 Бошқа Европа давлатлари</option>
+      </select>
+    </div>
+
+    <div id="jobsContainer">Юкланмоқда...</div>
+  </div>
+
+  <!-- ИШ БЕРУВЧИ БЎЛИМИ -->
+  <div id="employerSection" class="hidden">
+    <div class="card">
+      <h3 style="margin-top:0;">➕ Янги вакансия жойлаштириш</h3>
+      <div class="form-group">
+        <input id="empTitle" type="text" placeholder="Вакансия номи (мас. Қурувчи / Ҳайдовчи / Developer)" />
+      </div>
+      <div class="form-group">
+        <input id="empCompany" type="text" placeholder="Компания ёки иш берувчи номи" />
+      </div>
+      <div class="form-group">
+        <select id="empCountry">
+          <option value="Germany">🇩🇪 Германия (Germany)</option>
+          <option value="Poland">🇵🇱 Польша (Poland)</option>
+          <option value="Czech Republic">🇨🇿 Чехия (Czech Republic)</option>
+          <option value="Lithuania">🇱🇹 Литва (Lithuania)</option>
+          <option value="Netherlands">🇳🇱 Нидерландия (Netherlands)</option>
+          <option value="United Kingdom">🇬🇧 Буюк Британия (UK)</option>
+          <option value="Europe">🇪🇺 Бошқа Европа давлати</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <input id="empLocation" type="text" placeholder="Шаҳар / Манзил (мас. Berlin, Germany)" />
+      </div>
+      <div class="form-group">
+        <input id="empSalary" type="text" placeholder="Маош (мас. €2,500 - €3,500)" />
+      </div>
+      <div class="form-group">
+        <input id="empContact" type="text" placeholder="Алоқа учун Telegram @username ёки телефон" />
+      </div>
+      <button class="btn-success" onclick="submitJobWithAd()">Эълонни жойлаш</button>
+    </div>
+  </div>
+
+  <script>
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    let monetagZoneId = "12197315";
+    let monetagFnName = null;
+
+    // Monetag SDK'ни динамик улаш
+    async function initMonetag() {
+      try {
+        const res = await fetch("/api/config");
+        const cfg = await res.json();
+        if (cfg.monetag_zone_id) {
+          monetagZoneId = cfg.monetag_zone_id;
+        }
+      } catch (e) {}
+
+      monetagFnName = `show_${monetagZoneId}`;
+      const script = document.createElement("script");
+      script.src = "//libtl.com/sdk.js";
+      script.setAttribute("data-zone", monetagZoneId);
+      script.setAttribute("data-sdk", monetagFnName);
+      document.head.appendChild(script);
+    }
+
+    // Рекламани хавфсиз кўрсатиш (агар SDK тайёр бўлмаса хато бермайди)
+    async function showMonetagAd() {
+      try {
+        if (monetagFnName && typeof window[monetagFnName] === "function") {
+          await window[monetagFnName]();
+        }
+      } catch (err) {
+        console.log("Ad skipped or unavailable:", err);
+      }
+    }
+
+    function switchTab(tab) {
+      const seekerSec = document.getElementById("seekerSection");
+      const employerSec = document.getElementById("employerSection");
+      const tabSeeker = document.getElementById("tabSeeker");
+      const tabEmployer = document.getElementById("tabEmployer");
+
+      if (tab === "seeker") {
+        seekerSec.classList.remove("hidden");
+        employerSec.classList.add("hidden");
+        tabSeeker.classList.add("active");
+        tabEmployer.classList.remove("active");
+      } else {
+        seekerSec.classList.add("hidden");
+        employerSec.classList.remove("hidden");
+        tabSeeker.classList.remove("active");
+        tabEmployer.classList.add("active");
+      }
+    }
+
+    async function loadJobs() {
+      const search = encodeURIComponent(document.getElementById("searchInput").value.trim());
+      const country = encodeURIComponent(document.getElementById("countrySelect").value);
+      const container = document.getElementById("jobsContainer");
+      container.innerHTML = "<p style='color:#94a3b8;'>Юкланмоқда...</p>";
+
+      try {
+        const res = await fetch(`/api/jobs?search=${search}&country=${country}`);
+        const data = await res.json();
+
+        if (!data.jobs || data.jobs.length === 0) {
+          container.innerHTML = "<p style='color:#94a3b8;'>Вакансиялар топилмади. Юқоридаги <b>🔄 Янгилаш</b> тугмасини босинг.</p>";
+          return;
+        }
+
+        container.innerHTML = data.jobs.map(job => `
+          <div class="card">
+            <span class="badge">${escapeHtml(job.country)}</span>
+            <div class="job-title">${escapeHtml(job.title)}</div>
+            <div class="job-meta">
+              🏢 ${escapeHtml(job.company)}<br/>
+              📍 ${escapeHtml(job.location)}<br/>
+              💰 ${escapeHtml(job.salary)}
+              ${job.contact ? `<br/>📞 Алоқа: <b>${escapeHtml(job.contact)}</b>` : ""}
+            </div>
+            ${job.url
+              ? `<button class="apply-btn" onclick="openJobUrl('${escapeHtml(job.url)}')">🔗 Вакансияга ўтиш</button>`
+              : ""
+            }
+          </div>
+        `).join("");
+      } catch (e) {
+        container.innerHTML = "<p style='color:#f87171;'>Маълумот юклашда хатолик юз берди.</p>";
+      }
+    }
+
+    async function openJobUrl(url) {
+      await showMonetagAd();
+      if (tg && tg.openLink) {
+        tg.openLink(url);
+      } else {
+        window.open(url, "_blank");
+      }
+    }
+
+    async function runParseWithAd() {
+      await showMonetagAd();
+      await fetch("/api/parse?limit=30", { method: "POST" });
+      await loadJobs();
+    }
+
+    async function submitJobWithAd() {
+      const title = document.getElementById("empTitle").value.trim();
+      const company = document.getElementById("empCompany").value.trim();
+      const country = document.getElementById("empCountry").value;
+      const location = document.getElementById("empLocation").value.trim();
+      const salary = document.getElementById("empSalary").value.trim() || "Kelishiladi";
+      const contact = document.getElementById("empContact").value.trim();
+
+      if (!title || !company || !location || !contact) {
+        alert("Барча асосий майдонларни тўлдиринг!");
+        return;
+      }
+
+      await showMonetagAd();
+
+      await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, company, country, location, salary, contact })
+      });
+
+      document.getElementById("empTitle").value = "";
+      document.getElementById("empCompany").value = "";
+      document.getElementById("empLocation").value = "";
+      document.getElementById("empSalary").value = "";
+      document.getElementById("empContact").value = "";
+
+      switchTab("seeker");
+      await loadJobs();
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    initMonetag();
+    loadJobs();
+  </script>
+</body>
+</html>
