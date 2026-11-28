@@ -120,7 +120,7 @@
 
   <div class="header">
     <h1>🌍 Europe & Foreign Jobs</h1>
-    <button class="btn-primary" style="padding:7px 10px; font-size:12px;" onclick="runParseWithAd()">🔄 Янгилаш</button>
+    <button id="refreshBtn" class="btn-primary" style="padding:7px 10px; font-size:12px;" onclick="runParseWithAd()">🔄 Янгилаш</button>
   </div>
 
   <div class="tabs">
@@ -180,7 +180,7 @@
       <div class="form-group">
         <input id="empContact" type="text" placeholder="Алоқа учун Telegram @username ёки телефон" />
       </div>
-      <button class="btn-success" onclick="submitJobWithAd()">Эълонни жойлаш</button>
+      <button id="submitJobBtn" class="btn-success" onclick="submitJobWithAd()">Эълонни жойлаш</button>
     </div>
   </div>
 
@@ -193,28 +193,44 @@
 
     let monetagZoneId = "12197315";
     let monetagFnName = null;
+    let sdkReadyPromise = null;
 
-    // Monetag SDK'ни динамик улаш
-    async function initMonetag() {
-      try {
-        const res = await fetch("/api/config");
-        const cfg = await res.json();
-        if (cfg.monetag_zone_id) {
-          monetagZoneId = cfg.monetag_zone_id;
+    function initMonetag() {
+      sdkReadyPromise = (async () => {
+        try {
+          const res = await fetch("/api/config");
+          if (res.ok) {
+            const cfg = await res.json();
+            if (cfg.monetag_zone_id) {
+              monetagZoneId = String(cfg.monetag_zone_id).trim();
+            }
+          }
+        } catch (e) {}
+
+        monetagFnName = `show_${monetagZoneId}`;
+        if (document.querySelector(`script[data-zone="${monetagZoneId}"]`)) {
+          return;
         }
-      } catch (e) {}
 
-      monetagFnName = `show_${monetagZoneId}`;
-      const script = document.createElement("script");
-      script.src = "//libtl.com/sdk.js";
-      script.setAttribute("data-zone", monetagZoneId);
-      script.setAttribute("data-sdk", monetagFnName);
-      document.head.appendChild(script);
+        await new Promise((resolve) => {
+          const script = document.createElement("script");
+          script.src = "//libtl.com/sdk.js";
+          script.async = true;
+          script.setAttribute("data-zone", monetagZoneId);
+          script.setAttribute("data-sdk", monetagFnName);
+          script.onload = () => resolve();
+          script.onerror = () => resolve();
+          document.head.appendChild(script);
+        });
+      })();
+      return sdkReadyPromise;
     }
 
-    // Рекламани хавфсиз кўрсатиш (агар SDK тайёр бўлмаса хато бермайди)
     async function showMonetagAd() {
       try {
+        if (sdkReadyPromise) {
+          await sdkReadyPromise;
+        }
         if (monetagFnName && typeof window[monetagFnName] === "function") {
           await window[monetagFnName]();
         }
@@ -250,6 +266,7 @@
 
       try {
         const res = await fetch(`/api/jobs?search=${search}&country=${country}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
         if (!data.jobs || data.jobs.length === 0) {
@@ -283,14 +300,23 @@
       if (tg && tg.openLink) {
         tg.openLink(url);
       } else {
-        window.open(url, "_blank");
+        window.open(url, "_blank", "noopener,noreferrer");
       }
     }
 
     async function runParseWithAd() {
-      await showMonetagAd();
-      await fetch("/api/parse?limit=30", { method: "POST" });
-      await loadJobs();
+      const btn = document.getElementById("refreshBtn");
+      btn.disabled = true;
+      try {
+        await showMonetagAd();
+        const res = await fetch("/api/parse?limit=30", { method: "POST" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await loadJobs();
+      } catch (e) {
+        alert("Янгилашда хатолик юз берди.");
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function submitJobWithAd() {
@@ -306,22 +332,31 @@
         return;
       }
 
-      await showMonetagAd();
+      const btn = document.getElementById("submitJobBtn");
+      btn.disabled = true;
+      try {
+        await showMonetagAd();
 
-      await fetch("/api/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, company, country, location, salary, contact })
-      });
+        const res = await fetch("/api/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, company, country, location, salary, contact })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      document.getElementById("empTitle").value = "";
-      document.getElementById("empCompany").value = "";
-      document.getElementById("empLocation").value = "";
-      document.getElementById("empSalary").value = "";
-      document.getElementById("empContact").value = "";
+        document.getElementById("empTitle").value = "";
+        document.getElementById("empCompany").value = "";
+        document.getElementById("empLocation").value = "";
+        document.getElementById("empSalary").value = "";
+        document.getElementById("empContact").value = "";
 
-      switchTab("seeker");
-      await loadJobs();
+        switchTab("seeker");
+        await loadJobs();
+      } catch (e) {
+        alert("Эълонни сақлашда хатолик юз берди.");
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     function escapeHtml(str) {
