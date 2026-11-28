@@ -1,74 +1,91 @@
 import asyncio
-import html
-import json
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
-from urllib.parse import quote
-from urllib.request import Request, urlopen
 
-import asyncpg
-from fastapi import FastAPI, HTTPException
+from aiogram import Bot, Dispatcher
+from aiogram.filters import CommandStart
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MenuButtonWebApp,
+    Message,
+    WebAppInfo,
+)
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")
+from parsing import close_db, get_jobs, init_db, parse_foreign_jobs, save_jobs
 
-db_pool: Optional[asyncpg.Pool] = None
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip()
+MONETAG_ZONE_ID = os.getenv("MONETAG_ZONE_ID", "12197315").strip()
+
+dp = Dispatcher()
 
 
-def _send_telegram_sync(text: str) -> None:
-    if not BOT_TOKEN or not ADMIN_CHAT_ID:
+@dp.message(CommandStart())
+async def cmd_start(message: Message) -> None:
+    if not WEBAPP_URL.startswith("https://"):
+        await message.answer("⚠️ Ошибка настройки: WEBAPP_URL не задан или не использует HTTPS.")
         return
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = json.dumps({
-        "chat_id": ADMIN_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
-    }).encode("utf-8")
-    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
-    with urlopen(req, timeout=10) as resp:
-        resp.read()
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🚀 Иш топиш / Эълон бериш (Mini App)",
+                    web_app=WebAppInfo(url=WEBAPP_URL),
+                )
+            ]
+        ]
+    )
+    await message.answer(
+        "🌍 <b>Европа ва Хорижий Ишлар Платформаси</b>\n\n"
+        "• Иш қидирувчилар учун: Европа ва хорижий давлатлардаги сўнгги вакансиялар.\n"
+        "• Иш берувчилар учун: тўғридан-тўғри вакансия жойлаштириш.\n\n"
+        "Барча хизматлардан фойдаланиш учун қуйидаги тугма орқали <b>Mini App</b>'ни очинг 👇",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
 
 
-async def notify_admin(text: str) -> None:
-    try:
-        await asyncio.to_thread(_send_telegram_sync, text)
-    except Exception as e:
-        print(f"Telegram send error: {e}")
+async def run_bot() -> None:
+    if not BOT_TOKEN:
+        print("ERROR: BOT_TOKEN не установлен!")
+        return
+
+    bot = Bot(token=BOT_TOKEN)
+    await bot.delete_webhook(drop_pending_updates=True)
+
+    # Автоматически устанавливаем кнопку меню (слева от поля ввода)
+    if WEBAPP_URL.startswith("https://"):
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="Ишлар / Jobs",
+                web_app=WebAppInfo(url=WEBAPP_URL),
+            )
+        )
+
+    await dp.start_polling(bot)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db_pool
-    if DATABASE_URL:
-        db_pool = await asyncpg.create_pool(DATABASE_URL)
-        async with db_pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS jobs (
-                    id SERIAL PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    country TEXT,
-                    salary TEXT,
-                    contact TEXT,
-                    description TEXT,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            """)
+    await init_db()
+    bot_task = asyncio.create_task(run_bot())
     yield
-    if db_pool:
-        await db_pool.close()
+    bot_task.cancel()
+    await close_db()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Europe Jobs Mini App", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -76,56 +93,56 @@ app.add_middleware(
 
 class JobCreate(BaseModel):
     title: str
-    country: Optional[str] = ""
-    salary: Optional[str] = ""
-    contact: Optional[str] = ""
-    description: Optional[str] = ""
+    company: str
+    country: str = "Europe"
+    location: str
+    salary: str = "Kelishiladi"
+    job_type: str = "Full-time"
+    contact: str = ""
+    url: str = ""
 
 
 @app.get("/")
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def serve_index() -> FileResponse:
+    return FileResponse("index.html")
+
+
+@app.get("/api/config")
+async def get_config():
+    return {"monetag_zone_id": MONETAG_ZONE_ID}
 
 
 @app.get("/api/jobs")
-async def get_jobs():
-    if not db_pool:
-        return []
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, title, country, salary, contact, description, created_at "
-            "FROM jobs ORDER BY id DESC LIMIT 100"
-        )
-        return [dict(r) for r in rows]
+async def api_list_jobs(
+    search: Optional[str] = Query(default=None),
+    country: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    jobs = await get_jobs(search=search, country=country, limit=limit)
+    return {"count": len(jobs), "jobs": jobs}
 
 
 @app.post("/api/jobs")
-async def create_job(job: JobCreate):
-    job_id = None
-    if db_pool:
-        async with db_pool.acquire() as conn:
-            job_id = await conn.fetchval(
-                """
-                INSERT INTO jobs (title, country, salary, contact, description)
-                VALUES ($1, $2, $3, $4, $5)
-                RETURNING id
-                """,
-                job.title,
-                job.country,
-                job.salary,
-                job.contact,
-                job.description,
-            )
-
-    msg = (
-        f"🆕 <b>Новая заявка / вакансия</b>"
-        f"{f' (#{job_id})' if job_id else ''}\n\n"
-        f"📌 <b>Название:</b> {html.escape(job.title)}\n"
-        f"🌍 <b>Страна:</b> {html.escape(job.country or '-')}\n"
-        f"💰 <b>Зарплата:</b> {html.escape(job.salary or '-')}\n"
-        f"📞 <b>Контакт:</b> {html.escape(job.contact or '-')}\n"
-        f"📝 <b>Описание:</b> {html.escape(job.description or '-')}"
+async def api_create_job(payload: JobCreate):
+    inserted = await save_jobs(
+        [
+            {
+                "title": payload.title.strip(),
+                "company": payload.company.strip(),
+                "country": payload.country.strip() or "Europe",
+                "location": payload.location.strip(),
+                "salary": payload.salary.strip() or "Kelishiladi",
+                "job_type": payload.job_type.strip() or "Full-time",
+                "contact": payload.contact.strip(),
+                "url": payload.url.strip(),
+                "source": "employer_miniapp",
+            }
+        ]
     )
-    asyncio.create_task(notify_admin(msg))
-    return {"ok": True, "id": job_id}
+    return {"status": "ok", "inserted": inserted}
+
+
+@app.post("/api/parse")
+async def api_parse_jobs(limit: int = Query(default=30, ge=1, le=100)):
+    inserted = await parse_foreign_jobs(limit=limit)
+    return {"status": "ok", "inserted": inserted}
